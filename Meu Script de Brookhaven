@@ -1,0 +1,659 @@
+-- Spectra Hub - Versão final: executa os scripts de skin ao clicar
+-- Autor: ChatGPT (GPT-5) + ajustes pedidos pelo usuário
+-- AVISO: este script chama RemoteFunction em ReplicatedStorage (LoadOutfit:InvokeServer).
+-- Execute com responsabilidade — você pediu execução direta dos scripts que forneceu.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- tamanhos
+local normalSize = UDim2.new(0, 600, 0, 350)
+local minimizedSize = UDim2.new(0, 600, 0, 40)
+
+-- remove GUIs antigas com mesmo nome (evita duplicar)
+for _,g in ipairs(playerGui:GetChildren()) do
+if g.Name == "SpectraHubUI" then g:Destroy() end
+end
+
+-- criar ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SpectraHubUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- main frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = normalSize
+mainFrame.Position = UDim2.new(0.5, -300, 0.5, -175)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,12)
+
+-- top bar
+local topBar = Instance.new("Frame", mainFrame)
+topBar.Size = UDim2.new(1,0,0,40)
+topBar.BackgroundColor3 = Color3.fromRGB(25,25,25)
+Instance.new("UICorner", topBar).CornerRadius = UDim.new(0,12)
+
+local separator = Instance.new("Frame", topBar)
+separator.Size = UDim2.new(1,0,0,1)
+separator.Position = UDim2.new(0,0,1,-1)
+separator.BackgroundColor3 = Color3.fromRGB(80,80,80)
+
+local title = Instance.new("TextLabel", topBar)
+title.Size = UDim2.new(1, -90, 1, 0)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextSize = 22
+title.TextColor3 = Color3.fromRGB(220,220,220)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "𖣘 SPECTRA HUB 𖣘"
+
+-- criar botões do topo corretamente (não vão sumir)
+local function createTopButton(sym, offset, color)
+local b = Instance.new("TextButton", topBar)
+b.Size = UDim2.new(0,30,0,30)
+b.Position = UDim2.new(1, offset, 0.5, -15)
+b.BackgroundColor3 = color
+b.Text = sym
+b.Font = Enum.Font.GothamBold
+b.TextColor3 = Color3.fromRGB(255,255,255)
+b.TextSize = 18
+Instance.new("UICorner", b).CornerRadius = UDim.new(0,6)
+return b
+end
+
+local minimizeButton = createTopButton("-", -70, Color3.fromRGB(25,25,25))
+local closeButton = createTopButton("X", -35, Color3.fromRGB(60,20,20))
+
+-- frames: abas / conteúdo
+local tabsFrame = Instance.new("Frame", mainFrame)
+tabsFrame.Name = "TabsFrame"
+tabsFrame.Size = UDim2.new(0.3, 0, 1, -40)
+tabsFrame.Position = UDim2.new(0,0,0,40)
+tabsFrame.BackgroundColor3 = Color3.fromRGB(15,15,15)
+tabsFrame.BorderSizePixel = 0
+Instance.new("UICorner", tabsFrame).CornerRadius = UDim.new(0,12)
+
+local contentFrame = Instance.new("Frame", mainFrame)
+contentFrame.Name = "ContentFrame"
+contentFrame.Size = UDim2.new(0.7, 0, 1, -40)
+contentFrame.Position = UDim2.new(0.3,0,0,40)
+contentFrame.BackgroundColor3 = Color3.fromRGB(35,35,35)
+contentFrame.BorderSizePixel = 0
+Instance.new("UICorner", contentFrame).CornerRadius = UDim.new(0,12)
+
+-- sombra
+local shadow = Instance.new("ImageLabel", mainFrame)
+shadow.AnchorPoint = Vector2.new(0.5,0.5)
+shadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+shadow.Size = UDim2.new(1,40,1,40)
+shadow.BackgroundTransparency = 1
+shadow.Image = "rbxassetid://5028857084"
+shadow.ImageColor3 = Color3.fromRGB(0,0,0)
+shadow.ImageTransparency = 0.4
+shadow.ScaleType = Enum.ScaleType.Slice
+shadow.SliceCenter = Rect.new(24,24,276,276)
+
+-- minimizar / restaurar
+local isMinimized = false
+local function setContentVisibility(v)
+tabsFrame.Visible = v
+contentFrame.Visible = v
+if shadow then shadow.Visible = v end
+end
+
+minimizeButton.MouseButton1Click:Connect(function()
+isMinimized = not isMinimized
+if isMinimized then
+mainFrame:TweenSize(minimizedSize, Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.18, true)
+setContentVisibility(false)
+else
+mainFrame:TweenSize(normalSize, Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.18, true)
+setContentVisibility(true)
+end
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+screenGui:Destroy()
+end)
+
+-- gerenciador de páginas
+local pages = {}
+local function hideAllPages()
+for _,p in ipairs(pages) do
+if p and p:IsA("Frame") or p and p:IsA("ScrollingFrame") then
+p.Visible = false
+end
+end
+end
+
+-- helper para criar botão de aba empilhado
+local function createTab(symbol, ypos)
+local btn = Instance.new("TextButton", tabsFrame)
+btn.Size = UDim2.new(1, -10, 0, 40)
+btn.Position = UDim2.new(0, 5, 0, ypos)
+btn.BackgroundColor3 = Color3.fromRGB(25,25,25)
+btn.Text = symbol
+btn.Font = Enum.Font.GothamBold
+btn.TextColor3 = Color3.fromRGB(255,255,255)
+btn.TextSize = 24
+Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
+return btn
+end
+
+local currentY = 10
+
+-- ======================
+-- ABA "!" (INFORMAÇÕES DO CRIADOR)
+-- ======================
+local infoTab = createTab("!", currentY); currentY = currentY + 50
+local infoPage = Instance.new("Frame", contentFrame)
+infoPage.Size = UDim2.new(1, -20, 1, -20)
+infoPage.Position = UDim2.new(0, 10, 0, 10)
+infoPage.BackgroundTransparency = 1
+infoPage.Visible = false
+table.insert(pages, infoPage)
+
+local function makeLabel(parent, text, y, bold)
+local lbl = Instance.new("TextLabel", parent)
+lbl.Size = UDim2.new(1, -20, 0, 24)
+lbl.Position = UDim2.new(0, 10, 0, y)
+lbl.BackgroundTransparency = 1
+lbl.Text = text
+lbl.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+lbl.TextSize = 16
+lbl.TextColor3 = Color3.fromRGB(255,255,255)
+lbl.TextXAlignment = Enum.TextXAlignment.Left
+return lbl
+end
+
+makeLabel(infoPage, "Criador do painel:", 0, true)
+makeLabel(infoPage, "assure_TV", 26, false)
+
+makeLabel(infoPage, "Discord do criador:", 66, true)
+local discordLink = "https://discord.gg/pTnJmfBYN"
+do
+local btn = Instance.new("TextButton", infoPage)
+btn.Size = UDim2.new(0, 300, 0, 30)
+btn.Position = UDim2.new(0, 10, 0, 96)
+btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+btn.TextColor3 = Color3.fromRGB(255,255,255)
+btn.Font = Enum.Font.GothamBold
+btn.TextSize = 14
+btn.Text = "Copiar link do Discord"
+Instance.new("UICorner", btn).CornerRadius = UDim.new(0,6)
+btn.MouseButton1Click:Connect(function()
+local ok = pcall(function() setclipboard(discordLink) end)
+if ok then
+game:GetService("StarterGui"):SetCore("SendNotification", {Title="Copiado!", Text="Link do Discord copiado.", Duration=3})
+else
+game:GetService("StarterGui"):SetCore("SendNotification", {Title="Erro", Text="Não foi possível copiar automaticamente. Copie manualmente: "..discordLink, Duration=5})
+end
+end)
+end
+
+makeLabel(infoPage, "Canal do criador:", 140, true)
+local youtubeLink = "https://youtube.com/@assure_tv?si=Zq6S0opmRLXjjSAN"
+do
+local btn = Instance.new("TextButton", infoPage)
+btn.Size = UDim2.new(0, 300, 0, 30)
+btn.Position = UDim2.new(0, 10, 0, 170)
+btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+btn.TextColor3 = Color3.fromRGB(255,255,255)
+btn.Font = Enum.Font.GothamBold
+btn.TextSize = 14
+btn.Text = "Copiar link do canal"
+Instance.new("UICorner", btn).CornerRadius = UDim.new(0,6)
+btn.MouseButton1Click:Connect(function()
+local ok = pcall(function() setclipboard(youtubeLink) end)
+if ok then
+game:GetService("StarterGui"):SetCore("SendNotification", {Title="Copiado!", Text="Link do canal copiado.", Duration=3})
+else
+game:GetService("StarterGui"):SetCore("SendNotification", {Title="Erro", Text="Não foi possível copiar automaticamente. Copie manualmente: "..youtubeLink, Duration=5})
+end
+end)
+end
+
+makeLabel(infoPage, "Muito obrigado por usar o Spectra Hub!", 220, true)
+makeLabel(infoPage, "Agradecemos esses links do canal e do Discord do criador — só copiar e colar no seu navegador.", 246, false)
+
+-- ======================
+-- ABA "👤" (PERSONAGEM) - com SCROLL e seção de skins executáveis
+-- ======================
+local charTab = createTab("👤", currentY); currentY = currentY + 50
+local charScroll = Instance.new("ScrollingFrame", contentFrame)
+charScroll.Size = UDim2.new(1, -20, 1, -20)
+charScroll.Position = UDim2.new(0, 10, 0, 10)
+charScroll.CanvasSize = UDim2.new(0,0,2.5,0)
+charScroll.ScrollBarThickness = 6
+charScroll.BackgroundTransparency = 1
+charScroll.Visible = false
+table.insert(pages, charScroll)
+
+local listLayout = Instance.new("UIListLayout", charScroll)
+listLayout.Padding = UDim.new(0,10)
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- helper para criar seções e controles dentro do scroll
+local function createSectionTitle(text)
+local t = Instance.new("TextLabel", charScroll)
+t.Size = UDim2.new(1, -20, 0, 22)
+t.BackgroundTransparency = 1
+t.Font = Enum.Font.GothamBold
+t.TextColor3 = Color3.fromRGB(255,255,255)
+t.Text = text
+t.TextXAlignment = Enum.TextXAlignment.Left
+return t
+end
+local function createInput(placeholder)
+local tb = Instance.new("TextBox", charScroll)
+tb.Size = UDim2.new(0,200,0,28)
+tb.PlaceholderText = placeholder
+tb.BackgroundColor3 = Color3.fromRGB(50,50,50)
+tb.TextColor3 = Color3.fromRGB(255,255,255)
+tb.Font = Enum.Font.Gotham
+tb.TextSize = 14
+Instance.new("UICorner", tb).CornerRadius = UDim.new(0,6)
+return tb
+end
+local function createSmallButton(text)
+local b = Instance.new("TextButton", charScroll)
+b.Size = UDim2.new(0,120,0,28)
+b.BackgroundColor3 = Color3.fromRGB(70,70,70)
+b.Font = Enum.Font.GothamBold
+b.TextSize = 14
+b.TextColor3 = Color3.fromRGB(255,255,255)
+b.Text = text
+Instance.new("UICorner", b).CornerRadius = UDim.new(0,6)
+return b
+end
+
+-- Speed / Jump / Infinite / NoClip (mantidos)
+createSectionTitle("Speed")
+local speedBox = createInput("Velocidade (ex: 50)")
+local speedBtn = createSmallButton("Ativar")
+local speedOn = false
+local function getHumanoid()
+if player.Character then
+return player.Character:FindFirstChildOfClass("Humanoid")
+end
+return nil
+end
+speedBtn.MouseButton1Click:Connect(function()
+local hum = getHumanoid()
+if not hum then return end
+speedOn = not speedOn
+if speedOn then
+hum.WalkSpeed = tonumber(speedBox.Text) or 16
+speedBtn.Text = "Desligar"
+else
+hum.WalkSpeed = 16
+speedBtn.Text = "Ativar"
+end
+end)
+
+createSectionTitle("Jump")
+local jumpBox = createInput("Força do pulo (ex: 100)")
+local jumpBtn = createSmallButton("Ativar")
+local jumpOn = false
+jumpBtn.MouseButton1Click:Connect(function()
+local hum = getHumanoid()
+if not hum then return end
+jumpOn = not jumpOn
+if jumpOn then
+hum.UseJumpPower = true
+hum.JumpPower = tonumber(jumpBox.Text) or 50
+jumpBtn.Text = "Desligar"
+else
+hum.JumpPower = 50
+jumpBtn.Text = "Ativar"
+end
+end)
+
+createSectionTitle("Infinite Jump")
+local infBtn = createSmallButton("Ligar")
+local infOn = false
+UserInputService.JumpRequest:Connect(function()
+if infOn then
+local hum = getHumanoid()
+if hum then hum:ChangeState("Jumping") end
+end
+end)
+infBtn.MouseButton1Click:Connect(function()
+infOn = not infOn
+infBtn.Text = infOn and "Desligar" or "Ligar"
+end)
+
+createSectionTitle("No Clip")
+local noclipBtn = createSmallButton("Ligar")
+local noclipOn = false
+RunService.Stepped:Connect(function()
+if noclipOn and player.Character then
+for _, part in pairs(player.Character:GetDescendants()) do
+if part:IsA("BasePart") then part.CanCollide = false end
+end
+end
+end)
+noclipBtn.MouseButton1Click:Connect(function()
+noclipOn = not noclipOn
+noclipBtn.Text = noclipOn and "Desligar" or "Ligar"
+end)
+
+-- ======================
+-- Skins: lista com execução direta dos scripts enviados
+-- ======================
+createSectionTitle("Skins")
+
+-- tabela com os nomes e os IDs conforme você enviou
+local skins = {
+{ name = "gone", id = 16 },
+{ name = "1x1x1x1", id = 12 },
+{ name = "homem grande", id = 17 },
+{ name = "loud", id = 22 },
+{ name = "sem dona", id = 23 },
+{ name = "hacker", id = 2 },
+{ name = "Nike", id = 10 },
+{ name = "carro", id = 11 },
+{ name = "e os D", id = 21 },
+{ name = "soca fofo", id = 5 },
+}
+
+-- dropdown visual
+local dropdownBtn = Instance.new("TextButton", charScroll)
+dropdownBtn.Size = UDim2.new(0,200,0,28)
+dropdownBtn.Text = "Escolher skin..."
+dropdownBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+dropdownBtn.TextColor3 = Color3.fromRGB(255,255,255)
+dropdownBtn.Font = Enum.Font.Gotham
+dropdownBtn.TextSize = 14
+Instance.new("UICorner", dropdownBtn).CornerRadius = UDim.new(0,6)
+
+local dropFrame = Instance.new("Frame", charScroll)
+dropFrame.Size = UDim2.new(0,200,0,0)
+dropFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+dropFrame.ClipsDescendants = true
+Instance.new("UICorner", dropFrame).CornerRadius = UDim.new(0,6)
+
+local listLayout = Instance.new("UIListLayout", dropFrame)
+listLayout.Padding = UDim.new(0,4)
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local selectedSkin = nil
+local dropdownOpen = false
+
+local function populateDropdown()
+-- limpar filhos (exceto UIListLayout)
+for _,c in ipairs(dropFrame:GetChildren()) do
+if not c:IsA("UIListLayout") then c:Destroy() end
+end
+for i,v in ipairs(skins) do
+local item = Instance.new("TextButton", dropFrame)
+item.Size = UDim2.new(1, -10, 0, 28)
+item.Position = UDim2.new(0, 5, 0, (i-1)*32)
+item.BackgroundColor3 = Color3.fromRGB(55,55,55)
+item.Font = Enum.Font.Gotham
+item.Text = v.name
+item.TextColor3 = Color3.fromRGB(255,255,255)
+item.TextSize = 14
+Instance.new("UICorner", item).CornerRadius = UDim.new(0,6)
+item.MouseButton1Click:Connect(function()
+selectedSkin = v
+dropdownBtn.Text = "Skin: " .. v.name
+-- fechar lista
+dropFrame:TweenSize(UDim2.new(0,200,0,0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.15, true)
+dropdownOpen = false
+end)
+end
+end
+
+dropdownBtn.MouseButton1Click:Connect(function()
+if dropdownOpen then
+dropFrame:TweenSize(UDim2.new(0,200,0,0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.15, true)
+dropdownOpen = false
+else
+populateDropdown()
+local itemHeight = 32
+local num = math.min(#skins, 6)
+local height = num * itemHeight + 8
+dropFrame:TweenSize(UDim2.new(0,200,0,height), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.15, true)
+dropdownOpen = true
+end
+end)
+
+-- botão executar: aqui executamos exatamente os scripts que você enviou (InvokeServer(id))
+local execBtn = Instance.new("TextButton", charScroll)
+execBtn.Size = UDim2.new(0,200,0,28)
+execBtn.Text = "Executar Skin"
+execBtn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+execBtn.TextColor3 = Color3.fromRGB(255,255,255)
+execBtn.Font = Enum.Font.GothamBold
+execBtn.TextSize = 14
+Instance.new("UICorner", execBtn).CornerRadius = UDim.new(0,6)
+
+execBtn.MouseButton1Click:Connect(function()
+if not selectedSkin then
+game.StarterGui:SetCore("SendNotification",{Title="Erro",Text="Escolha uma skin antes de executar.",Duration=3})
+return
+end
+
+-- tentar chamar o RemoteFunction LoadOutfit
+local ok, err = pcall(function()
+-- tentar obter RemoteFunction
+local remotesFolder = ReplicatedStorage:FindFirstChild("Remotes")
+assert(remotesFolder, "Remotes not found in ReplicatedStorage")
+local LoadOutfit = remotesFolder:FindFirstChild("LoadOutfit")
+assert(LoadOutfit and LoadOutfit:IsA("RemoteFunction"), "LoadOutfit RemoteFunction not found")
+-- executar exatamente o que você enviou: InvokeServer(id)
+LoadOutfit:InvokeServer(selectedSkin.id)
+end)
+
+if ok then
+game.StarterGui:SetCore("SendNotification",{Title="Executado",Text="Script da skin "..selectedSkin.name.." executado.",Duration=3})
+else
+game.StarterGui:SetCore("SendNotification",{Title="Erro",Text="Falha ao executar: "..tostring(err),Duration=5})
+end
+
+end)
+
+-- ======================
+-- Troca de abas (garante esconder todas antes de mostrar)
+-- ======================
+infoTab.MouseButton1Click:Connect(function()
+hideAllPages()
+infoPage.Visible = true
+end)
+charTab.MouseButton1Click:Connect(function()
+hideAllPages()
+charScroll.Visible = true
+end)
+
+-- iniciar mostrando info
+hideAllPages()
+infoPage.Visible = true
+setContentVisibility(true)
+
+-- reaplicar estados ao respawn se necessário (pequena segurança)
+player.CharacterAdded:Connect(function(char)
+wait(0.5)
+-- se Speed/Jump estavam ativados eles permanecem quando o jogador ativar novamente
+end)
+--[[
+========= INÍCIO ABA "[biu]" =========
+]]
+local biuTab = createTab("[biu]", currentY); currentY = currentY + 50
+local biuScroll = Instance.new("ScrollingFrame", contentFrame)
+biuScroll.Size = UDim2.new(1, -20, 1, -20)
+biuScroll.Position = UDim2.new(0, 10, 0, 10)
+biuScroll.ScrollBarThickness = 6
+biuScroll.BackgroundTransparency = 1
+biuScroll.CanvasSize = UDim2.new(0,0,0,200)
+biuScroll.Visible = false
+table.insert(pages, biuScroll)
+
+local biuListLayout = Instance.new("UIListLayout", biuScroll)
+biuListLayout.Padding = UDim.new(0,10)
+biuListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+biuListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+biuScroll.CanvasSize = UDim2.new(0,0,0,biuListLayout.AbsoluteContentSize.Y + 10)
+end)
+
+local function createBiuNameButton(name)
+local btn = Instance.new("TextButton", biuScroll)
+btn.Size = UDim2.new(0,200,0,32)
+btn.BackgroundColor3 = Color3.fromRGB(50,50,50) -- cinza escuro
+btn.Font = Enum.Font.GothamBold
+btn.TextSize = 14
+btn.TextColor3 = Color3.fromRGB(255,255,255)
+btn.Text = name
+Instance.new("UICorner", btn).CornerRadius = UDim.new(0,6)
+return btn
+end
+
+local function fireRolePlayName(target)
+local ok,err = pcall(function()
+local RE = ReplicatedStorage:FindFirstChild("RE")
+assert(RE,"RE folder not found in ReplicatedStorage")
+local Skibidi1 = RE:FindFirstChild("1RPNam1eTex1t")
+assert(Skibidi1 and Skibidi1:IsA("RemoteEvent"),"RemoteEvent 1RPNam1eTex1t not found")
+Skibidi1:FireServer("RolePlayName",target)
+end)
+if ok then
+game.StarterGui:SetCore("SendNotification",{Title="Executado", Text="RolePlayName definido para: "..target, Duration=3})
+else
+game.StarterGui:SetCore("SendNotification",{Title="Erro", Text="Erro ao definir: "..tostring(err), Duration=5})
+end
+end
+
+local biuNomes = {
+"666",
+"ADM",
+"ADMIN",
+"VIP",
+"ReiDoCaos",
+"Possessão demoníaca",
+}
+
+for _,nome in ipairs(biuNomes) do
+local btn = createBiuNameButton(nome)
+btn.MouseButton1Click:Connect(function()
+fireRolePlayName(nome)
+end)
+end
+
+
+
+
+biuTab.MouseButton1Click:Connect(function()
+hideAllPages()
+biuScroll.Visible = true
+end)
+-- === BOTÃO RGB COM CONTROLE DE VELOCIDADE ===
+-- Lista das cores: cada cor é um Color3
+local rgbColors = {
+    Color3.fromRGB(255, 0, 6.130499839782715),
+    Color3.fromRGB(255, 0, 67.01356887817383),
+    Color3.fromRGB(255, 0, 100.89632034301758),
+    Color3.fromRGB(255, 0, 157.0840573310852),
+    Color3.fromRGB(255, 0, 208.7718629837036),
+    Color3.fromRGB(255, 0, 252.79526710510254),
+    Color3.fromRGB(216.56649112701416, 0, 255),
+    Color3.fromRGB(167.61830806732178, 0, 255),
+    Color3.fromRGB(158.80428582429886, 3.7642452120780945, 255),
+    Color3.fromRGB(120.6221866607666, 0, 255),
+    Color3.fromRGB(105.054452419281, 0, 255),
+    Color3.fromRGB(83.89001369476318, 0, 255),
+    Color3.fromRGB(74.30650234222412, 0, 255),
+    Color3.fromRGB(5.651543140411377, 0, 255),
+    Color3.fromRGB(0, 99.39768075942993, 255),
+    Color3.fromRGB(0, 120.05075812339783, 255),
+    Color3.fromRGB(0, 140.0111174583435, 255),
+    Color3.fromRGB(0, 158.74915838241577, 255),
+    Color3.fromRGB(0, 193.73306035995483, 255),
+    Color3.fromRGB(0, 222.19906568527222, 255),
+    Color3.fromRGB(0, 255, 239.39894914627075),
+    Color3.fromRGB(0, 255, 217.8643798828125),
+    Color3.fromRGB(0, 255, 168.64321947097778),
+    Color3.fromRGB(0, 255, 115.50018310546875),
+    Color3.fromRGB(0, 255, 76.75679326057434),
+    Color3.fromRGB(23.244295120239258, 255, 0),
+    Color3.fromRGB(147.8165978193283, 255, 0),
+    Color3.fromRGB(212.78387010097504, 255, 0),
+    Color3.fromRGB(252.61132657527924, 255, 0),
+    Color3.fromRGB(255, 233.55477154254913, 0),
+    Color3.fromRGB(255, 207.15442657470703, 0),
+    Color3.fromRGB(255, 183.46734881401062, 0),
+    Color3.fromRGB(255, 166.33303463459015, 0),
+    Color3.fromRGB(255, 145.32701700925827, 0),
+    Color3.fromRGB(255, 124.57599610090256, 0),
+    Color3.fromRGB(255, 106.35538101196289, 0),
+    Color3.fromRGB(255, 44.27058845758438, 0),
+    Color3.fromRGB(255, 0, 18.97052764892578),
+    Color3.fromRGB(255, 0, 99.13357973098755)
+}
+
+-- Cria o input para velocidade (em ms)
+local rgbSpeedBox = Instance.new("TextBox", biuScroll)
+rgbSpeedBox.Size = UDim2.new(0, 150, 0, 28)
+rgbSpeedBox.PlaceholderText = "Velocidade RGB (ms, padrão=120)"
+rgbSpeedBox.BackgroundColor3 = Color3.fromRGB(50,50,50)
+rgbSpeedBox.TextColor3 = Color3.fromRGB(255,255,255)
+rgbSpeedBox.Font = Enum.Font.GothamBold
+rgbSpeedBox.TextSize = 14
+rgbSpeedBox.Text = ""
+Instance.new("UICorner", rgbSpeedBox).CornerRadius = UDim.new(0,6)
+
+-- Cria o botão RGB
+local rgbBtn = Instance.new("TextButton", biuScroll)
+rgbBtn.Size = UDim2.new(0, 150, 0, 32)
+rgbBtn.BackgroundColor3 = Color3.fromRGB(110,40,100)
+rgbBtn.Font = Enum.Font.GothamBold
+rgbBtn.TextSize = 15
+rgbBtn.TextColor3 = Color3.fromRGB(255,255,255)
+rgbBtn.Text = "RGB"
+Instance.new("UICorner", rgbBtn).CornerRadius = UDim.new(0,8)
+
+-- Controle de execução (thread)
+local rgbRunning = false
+local rgbThread = nil
+
+local function fireRPColor(color)
+    local RE = game:GetService("ReplicatedStorage"):FindFirstChild("RE")
+    if not RE then return end
+    local evt = RE:FindFirstChild("1RPNam1eColo1r")
+    if evt and evt:IsA("RemoteEvent") then
+        evt:FireServer("PickingRPNameColor", color)
+    end
+end
+
+rgbBtn.MouseButton1Click:Connect(function()
+    if not rgbRunning then
+        rgbRunning = true
+        rgbBtn.Text = "Parar RGB"
+        rgbThread = coroutine.create(function()
+            while rgbRunning do
+                local delayMs = tonumber(rgbSpeedBox.Text) or 120
+                for _, clr in ipairs(rgbColors) do
+                    fireRPColor(clr)
+                    wait(delayMs / 1000)
+                    if not rgbRunning then break end
+                end
+            end
+        end)
+        coroutine.resume(rgbThread)
+    else
+        rgbRunning = false
+        rgbBtn.Text = "RGB"
+    end
+end)
